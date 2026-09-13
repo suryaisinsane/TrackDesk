@@ -84,16 +84,20 @@ def get_applications(user_id,status=None,statuses=None,search=None, limit=None, 
             }
             for app in applications
         ]
-def get_application_status_counts():
+def get_application_status_counts(user_id):
     with SessionLocal() as session:
         statement = (
             select(Application.status, func.count(Application.id))
+            .where(Application.user_id == user_id)
             .group_by(Application.status)
         )
 
         result = session.execute(statement)
 
-        return result.all()
+        return [
+            {"status": status, "count": count}
+            for status, count in result.all()
+        ]
 def create_application(user_id,company, role, source, status, job_url, follow_up, notes):
     with SessionLocal() as session:
         try:

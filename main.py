@@ -9,6 +9,7 @@ from db import (
     update_application,
     create_user,
     get_user_by_email,
+    get_application_status_counts,
 )
 from schemas import (
     ApplicationCreate,
@@ -51,7 +52,11 @@ def list_applications(current_user_id: int = Depends(get_current_user_id,)
 ):
     return get_applications(current_user_id)
 
-
+@app.get("/applications/status-counts")
+def get_status_counts(
+    current_user_id: int = Depends(get_current_user_id),
+):
+    return get_application_status_counts(current_user_id)
 @app.get(
     "/applications/{application_id}",
     response_model=ApplicationResponse,

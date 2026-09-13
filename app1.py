@@ -1,7 +1,36 @@
-from db import get_applications,create_application,update_application,delete_application,get_application_status_counts
 import streamlit as st
 import datetime 
+import requests 
 today = datetime.date.today()
+
+if "token" not in st.session_state:
+    st.session_state["token"] = None
+st.title("🔐 TrackDesk Login")
+
+email = st.text_input("Email")
+password = st.text_input("Password", type="password")
+
+if st.button("Login"):
+    response = requests.post(
+        "http://127.0.0.1:8000/login",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    if response.status_code == 200:
+        st.session_state["token"] = response.json()["access_token"]
+        st.success("Login successful!")
+    else:
+        st.write("Status code:", response.status_code)
+        st.write("Response:", response.text)
+
+if not st.session_state["token"]:
+    st.stop()
+headers = {
+    "Authorization": f"Bearer {st.session_state['token']}"
+}
 platforms = [
     "LinkedIn",
     "Indeed",
@@ -11,10 +40,27 @@ platforms = [
     "Referral",
     "Other"
 ]
-applications = get_applications()
-status_counts = get_application_status_counts()
+response = requests.get(
+    "http://127.0.0.1:8000/applications",
+    headers=headers,
+)
 
-st.write("Status counts:", status_counts)
+applications = response.json()
+
+counts_response = requests.get(
+    "http://127.0.0.1:8000/applications/status-counts",
+    headers=headers,
+)
+
+status_counts = {
+    "Applied": 0,
+    "Interview": 0,
+    "Offer": 0,
+    "Rejected": 0,
+}
+
+for item in counts_response.json():
+    status_counts[item["status"]] = item["count"]
 if "editing_id" not in st.session_state:
     st.session_state["editing_id"] = None
 if "show_dashboard_details" not in st.session_state:
@@ -29,10 +75,6 @@ st.subheader("📊 Dashboard")
 total_applications = len(applications)
 if total_applications == 0:
     st.info("👋 No applications yet. Add your first job application below.")
-status_counts = {
-    status: count
-    for status, count in get_application_status_counts()
-}
 st.metric("Total Applications", total_applications)
 
 if st.session_state["show_dashboard_details"]:
@@ -66,9 +108,9 @@ for app in applications:
     if app.get("follow_up"):
         follow_up_count += 1
 
-        if app["follow_up"] > today:
+        if datetime.date.fromisoformat(app["follow_up"]) > today:
             upcoming_follow_up_count += 1
-        elif app["follow_up"] == today:
+        elif datetime.date.fromisoformat(app["follow_up"]) == today:
             due_today_count += 1
 follow_col1, follow_col2, follow_col3 = st.columns(3)
 
@@ -101,20 +143,28 @@ follow_up_date = st.date_input("Follow-up Date")
 notes = st.text_area("Notes (Optional)")
 
 if st.button("➕ Add Application"):
-   if company and role:
-     create_application(
-       company,
-       role,
-       source,
-       status,
-       job_url,
-       follow_up_date,
-       notes
-)
-     st.success("Saved successfully")
-     st.rerun()
-   else:
-     st.error("Please enter valid values")
+    if company and role:
+        response = requests.post(
+            "http://127.0.0.1:8000/applications",
+            headers=headers,
+            json={
+                "company": company,
+                "role": role,
+                "source": source,
+                "status": status,
+                "job_url": job_url,
+                "follow_up": follow_up_date.isoformat(),
+                "notes": notes,
+            },
+        )
+
+        if response.status_code == 200:
+            st.success("Saved successfully")
+            st.rerun()
+        else:
+            st.error(f"Failed to save application: {response.text}")
+    else:
+        st.error("Please enter valid values")
 
 st.subheader("🔎 Search & Filter")
 
@@ -128,11 +178,12 @@ search = st.text_input("Search applications")
 status_value = None if filter_status == "All" else filter_status
 search_value = search if search else None
 
-filtered_apps = get_applications(
-    status=status_value,
-    search=search_value,
+response = requests.get(
+    "http://127.0.0.1:8000/applications",
+    headers=headers,
 )
 
+filtered_apps = response.json()
 st.subheader("💼 Applications")
 if not filtered_apps:
     st.info("No applications found.")
@@ -156,15 +207,23 @@ for app in filtered_apps:
     if app.get("notes"):
        st.markdown(f"📝 **Notes:** {app['notes']}")
     action_col1, action_col2 = st.columns(2)
-
     with action_col1:
       if st.button("Delete", key=f"delete_{app['id']}"):
-          delete_application(app["id"])
-          st.success("Application Deleted!")
-          st.rerun()
+         response = requests.delete(
+            f"http://127.0.0.1:8000/applications/{app['id']}",
+            headers=headers,
+        )
+
+         if response.status_code == 200:
+            st.success("Application Deleted!")
+            st.rerun()
+         else:
+            st.error(f"Failed to delete application: {response.text}")
+
     with action_col2:
-      if st.button("Edit", key=f"edit_{app['id']}"):
-          st.session_state["editing_id"] = app["id"]
+       if st.button("Edit", key=f"edit_{app['id']}"):
+         st.session_state["editing_id"] = app["id"]
+         st.rerun()
 
 editing_app = None
 for app in applications:
@@ -188,17 +247,23 @@ if editing_app:
     edit_notes = st.text_area("Notes (Optional)",value =editing_app.get("notes",""),key="edit_notes")
 
     if st.button("Update"):
-      update_application(
-        editing_app["id"],
-        edit_company,
-        edit_role,
-        edit_source,
-        edit_status,
-        edit_job_url,
-        edit_follow_up_date,
-        edit_notes
-      )
+        response = requests.put(
+            f"http://127.0.0.1:8000/applications/{editing_app['id']}",
+            headers=headers,
+            json={
+                "company": edit_company,
+                "role": edit_role,
+                "source": edit_source,
+                "status": edit_status,
+                "job_url": edit_job_url,
+                "follow_up": edit_follow_up_date.isoformat(),
+                "notes": edit_notes,
+            },
+        )
 
-      st.session_state["editing_id"] = None
-      st.success("Application updated!")
-      st.rerun()
+        if response.status_code == 200:
+            st.session_state["editing_id"] = None
+            st.success("Application updated!")
+            st.rerun()
+        else:
+            st.error(f"Failed to update application: {response.text}")
