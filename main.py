@@ -1,4 +1,4 @@
-
+import secrets
 from fastapi import FastAPI, HTTPException , Depends
 
 from db import (
@@ -10,6 +10,8 @@ from db import (
     create_user,
     get_user_by_email,
     get_application_status_counts,
+    create_raw_email,
+    get_user_by_inbound_email,
 )
 from schemas import (
     ApplicationCreate,
@@ -19,6 +21,26 @@ from schemas import (
     UserLogin
 )
 from security import hash_password,verify_password, create_access_token, get_current_user_id
+from dotenv import load_dotenv
+
+load_dotenv()
+import os
+import resend
+
+resend.api_key = os.getenv("RESEND_API_KEY")
+
+
+def send_welcome_email(to_email: str, name: str):
+    resend.Emails.send({
+        "from": "onboarding@resend.dev",
+        "to": to_email,
+        "subject": "Welcome to TrackDesk 🎉",
+        "html": f"""
+            <h2>Welcome to TrackDesk, {name}!</h2>
+            <p>Your account was created successfully.</p>
+            <p>Happy job hunting! 🚀</p>
+        """,
+    })
 
 app = FastAPI()
 
@@ -123,6 +145,7 @@ def delete_application_endpoint(
         )
 
     return {"message": "Application deleted successfully"}
+
 @app.post("/users")
 def register_user(user: UserCreate):
     existing_user = get_user_by_email(user.email)
@@ -134,11 +157,13 @@ def register_user(user: UserCreate):
         )
 
     password_hash = hash_password(user.password)
+    inbound_email = f"u_{secrets.token_urlsafe(8)}@inbound.trackdesk.local"
 
     new_user = create_user(
         name=user.name,
         email=user.email,
         password_hash=password_hash,
+        inbound_email=inbound_email,
     )
 
     return {
@@ -146,6 +171,7 @@ def register_user(user: UserCreate):
         "name": new_user.name,
         "email": new_user.email,
     }
+
 
 @app.post("/login")
 def login_user(user: UserLogin):
@@ -180,3 +206,37 @@ def get_me(
         "user_id": current_user_id
     }
 
+@app.post("/webhooks/email")
+def receive_email(event: dict):
+    email_id = event["data"]["email_id"]
+    to_email = event["data"]["to"][0]
+
+    user = get_user_by_inbound_email(to_email)
+
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Unknown TrackDesk inbound email address",
+        )
+
+    received_email = resend.Emails.Receiving.get(email_id)
+
+    from_email = received_email["from"]
+    subject = received_email.get("subject")
+    body = received_email.get("text") or received_email.get("html") or ""
+    message_id = received_email.get("message_id")
+
+    new_email = create_raw_email(
+        user_id=user.id,
+        from_email=from_email,
+        to_email=to_email,
+        subject=subject,
+        body=body,
+        message_id=message_id,
+    )
+
+    return {
+        "message": "Email stored successfully",
+        "email_id": new_email.id,
+        "user_id": user.id,
+    }

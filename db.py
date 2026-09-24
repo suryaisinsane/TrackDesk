@@ -3,7 +3,7 @@ from psycopg.rows import dict_row
 from sqlalchemy import create_engine,select,func
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import URL
-from models import Application,User
+from models import Application,User,RawEmail
 
 
 def get_connection():
@@ -198,13 +198,19 @@ def get_application(application_id,user_id):
 
         return result.scalar_one_or_none()
 
-def create_user(name, email, password_hash):
+def create_user(
+    name,
+    email,
+    password_hash,
+    inbound_email,
+):
     with SessionLocal() as session:
         try:
             user = User(
                 name=name,
                 email=email,
                 password_hash=password_hash,
+                inbound_email=inbound_email,
             )
 
             session.add(user)
@@ -217,7 +223,6 @@ def create_user(name, email, password_hash):
             session.rollback()
             raise
 
-
 def get_user_by_email(email):
     with SessionLocal() as session:
         statement = select(User).where(User.email == email)
@@ -226,4 +231,42 @@ def get_user_by_email(email):
 
         return result.scalar_one_or_none()
 
+def get_user_by_inbound_email(inbound_email):
+    with SessionLocal() as session:
+        print("DATABASE URL:", DATABASE_URL)
+        print("LOOKING FOR:", repr(inbound_email))
+
+        user = session.query(User).filter(
+            User.inbound_email == inbound_email
+        ).first()
+
+        print("DB RESULT:", user)
+
+        if user:
+            print("DB INBOUND EMAIL:", repr(user.inbound_email))
+
+        return user
+def create_raw_email(
+    user_id: int,
+    from_email: str,
+    to_email: str,
+    subject: str | None,
+    body: str,
+    message_id: str | None,
+):
+    with SessionLocal() as session:
+        new_email = RawEmail(
+            user_id=user_id,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            message_id=message_id,
+        )
+
+        session.add(new_email)
+        session.commit()
+        session.refresh(new_email)
+
+        return new_email
 

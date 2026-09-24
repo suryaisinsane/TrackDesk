@@ -6,6 +6,10 @@ from sqlalchemy.engine import URL
 
 from alembic import context
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from models import Base
 
 
