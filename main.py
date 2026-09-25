@@ -1,5 +1,7 @@
 import secrets
 from fastapi import FastAPI, HTTPException , Depends
+from email_parser import clean_email_body
+from llm_parser import extract_job_details
 
 from db import (
     create_application,
@@ -12,6 +14,8 @@ from db import (
     get_application_status_counts,
     create_raw_email,
     get_user_by_inbound_email,
+    process_email_application,
+
 )
 from schemas import (
     ApplicationCreate,
@@ -235,8 +239,26 @@ def receive_email(event: dict):
         message_id=message_id,
     )
 
+    cleaned_text = clean_email_body(body)
+
+    extraction = extract_job_details(cleaned_text)
+
+    if extraction.confidence < 0.7:
+        return {
+            "message": "Email stored but confidence was too low",
+            "email_id": new_email.id,
+            "confidence": extraction.confidence,
+        }
+
+    application_result = process_email_application(
+        user_id=user.id,
+        company=extraction.company,
+        role=extraction.role,
+        status=extraction.status,
+    )
+
     return {
-        "message": "Email stored successfully",
+        "message": "Email processed successfully",
         "email_id": new_email.id,
-        "user_id": user.id,
+        "application": application_result,
     }

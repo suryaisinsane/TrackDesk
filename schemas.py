@@ -55,3 +55,9 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class EmailJobExtraction(BaseModel):
+    company: str | None = None
+    role: str | None = None
+    status: str | None = None
+    confidence: float = Field(ge=0, le=1)

@@ -270,3 +270,72 @@ def create_raw_email(
 
         return new_email
 
+def get_latest_raw_email():
+    with SessionLocal() as session:
+        return (
+            session.query(RawEmail)
+            .order_by(RawEmail.id.desc())
+            .first()
+        )
+
+def get_application_by_company_and_role(
+    user_id: int,
+    company: str,
+    role: str,
+):
+    with SessionLocal() as session:
+        return (
+            session.query(Application)
+            .filter(
+                Application.user_id == user_id,
+                Application.company == company,
+                Application.role == role,
+            )
+            .first()
+        )
+
+def process_email_application(
+    user_id: int,
+    company: str,
+    role: str,
+    status: str,
+):
+    with SessionLocal() as session:
+        statement = select(Application).where(
+            Application.user_id == user_id,
+            Application.company == company,
+            Application.role == role,
+        )
+
+        result = session.execute(statement)
+        application = result.scalar_one_or_none()
+
+        if application is not None:
+            application.status = status
+            session.commit()
+            session.refresh(application)
+
+            return {
+                "action": "updated",
+                "application_id": application.id,
+            }
+
+        application = Application(
+            user_id=user_id,
+            company=company,
+            role=role,
+            source="email",
+            status=status,
+            job_url=None,
+            follow_up=None,
+            notes=None,
+        )
+
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+
+        return {
+            "action": "created",
+            "application_id": application.id,
+        }
