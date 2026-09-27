@@ -15,6 +15,8 @@ from db import (
     create_raw_email,
     get_user_by_inbound_email,
     process_email_application,
+    check_and_increment_daily_email_limit,
+    get_raw_email_by_message_id,
 
 )
 from schemas import (
@@ -222,7 +224,7 @@ def receive_email(event: dict):
             status_code=400,
             detail="Unknown TrackDesk inbound email address",
         )
-
+    
     received_email = resend.Emails.Receiving.get(email_id)
 
     from_email = received_email["from"]
@@ -230,6 +232,34 @@ def receive_email(event: dict):
     body = received_email.get("text") or received_email.get("html") or ""
     message_id = received_email.get("message_id")
 
+    allowed = check_and_increment_daily_email_limit(user.id)
+
+
+    if message_id:
+    existing_email = get_raw_email_by_message_id(message_id)
+
+    if existing_email is not None:
+        return {
+            "message": "Email already processed",
+            "email_id": existing_email.id,
+        }
+    
+
+    if not allowed:
+     new_email = create_raw_email(
+        user_id=user.id,
+        from_email=from_email,
+        to_email=to_email,
+        subject=subject,
+        body=body,
+        message_id=message_id,
+        status="limit_reached",
+    )
+
+    return {
+        "message": "Daily email processing limit reached",
+        "email_id": new_email.id,
+    }
     new_email = create_raw_email(
         user_id=user.id,
         from_email=from_email,

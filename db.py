@@ -4,6 +4,7 @@ from sqlalchemy import create_engine,select,func
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import URL
 from models import Application,User,RawEmail
+from datetime import date
 
 
 def get_connection():
@@ -233,19 +234,12 @@ def get_user_by_email(email):
 
 def get_user_by_inbound_email(inbound_email):
     with SessionLocal() as session:
-        print("DATABASE URL:", DATABASE_URL)
-        print("LOOKING FOR:", repr(inbound_email))
-
         user = session.query(User).filter(
             User.inbound_email == inbound_email
         ).first()
 
-        print("DB RESULT:", user)
-
-        if user:
-            print("DB INBOUND EMAIL:", repr(user.inbound_email))
-
         return user
+
 def create_raw_email(
     user_id: int,
     from_email: str,
@@ -253,6 +247,7 @@ def create_raw_email(
     subject: str | None,
     body: str,
     message_id: str | None,
+    status: str = "received",
 ):
     with SessionLocal() as session:
         new_email = RawEmail(
@@ -262,6 +257,7 @@ def create_raw_email(
             subject=subject,
             body=body,
             message_id=message_id,
+            status=status,
         )
 
         session.add(new_email)
@@ -339,3 +335,36 @@ def process_email_application(
             "action": "created",
             "application_id": application.id,
         }
+
+def check_and_increment_daily_email_limit(
+    user_id: int,
+    daily_limit: int = 20,
+):
+    with SessionLocal() as session:
+        user = session.get(User, user_id)
+
+        if user is None:
+            return False
+
+        today = date.today()
+
+        if user.daily_email_date != today:
+            user.daily_email_date = today
+            user.daily_email_count = 0
+
+        if user.daily_email_count >= daily_limit:
+            session.commit()
+            return False
+
+        user.daily_email_count += 1
+        session.commit()
+
+        return True
+
+def get_raw_email_by_message_id(message_id: str):
+    with SessionLocal() as session:
+        return (
+            session.query(RawEmail)
+            .filter(RawEmail.message_id == message_id)
+            .first()
+        )

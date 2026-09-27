@@ -32,6 +32,17 @@ class User(Base):
         unique=True,
         nullable=False,
     )
+    daily_email_count: Mapped[int] = mapped_column(
+    Integer,
+    default=0,
+    nullable=False,
+    )
+
+    daily_email_date: Mapped[date | None] = mapped_column(
+    Date,
+    nullable=True,
+    )
+
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
