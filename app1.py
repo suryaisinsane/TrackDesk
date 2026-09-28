@@ -5,32 +5,90 @@ today = datetime.date.today()
 
 if "token" not in st.session_state:
     st.session_state["token"] = None
-st.title("🔐 TrackDesk Login")
+st.title("🔐 TrackDesk")
 
-email = st.text_input("Email")
-password = st.text_input("Password", type="password")
+login_tab, signup_tab = st.tabs(["Login", "Sign Up"])
 
-if st.button("Login"):
-    response = requests.post(
-        "http://127.0.0.1:8000/login",
-        json={
-            "email": email,
-            "password": password,
-        },
+with login_tab:
+    email = st.text_input("Email", key="login_email")
+    password = st.text_input("Password", type="password", key="login_password")
+
+    if st.button("Login"):
+        response = requests.post(
+            "http://127.0.0.1:8000/login",
+            json={
+                "email": email,
+                "password": password,
+            },
+        )
+
+        if response.status_code == 200:
+            st.session_state["token"] = response.json()["access_token"]
+            st.success("Login successful!")
+            st.rerun()
+        else:
+            st.error("Invalid email or password.")
+
+with signup_tab:
+    name = st.text_input("Name", key="signup_name")
+    signup_email = st.text_input("Email", key="signup_email")
+    signup_password = st.text_input(
+        "Password",
+        type="password",
+        key="signup_password",
     )
 
-    if response.status_code == 200:
-        st.session_state["token"] = response.json()["access_token"]
-        st.success("Login successful!")
-    else:
-        st.write("Status code:", response.status_code)
-        st.write("Response:", response.text)
+    if st.button("Create Account"):
+        if not name or not signup_email or not signup_password:
+            st.error("Please fill in all fields.")
+        else:
+            response = requests.post(
+                "http://127.0.0.1:8000/users",
+                json={
+                    "name": name,
+                    "email": signup_email,
+                    "password": signup_password,
+                },
+            )
+
+            if response.status_code == 200:
+                st.success("Account created! Please log in.")
+            else:
+                st.error(response.text)
 
 if not st.session_state["token"]:
     st.stop()
+
 headers = {
     "Authorization": f"Bearer {st.session_state['token']}"
 }
+me_response = requests.get(
+    "http://127.0.0.1:8000/me",
+    headers=headers,
+)
+
+if me_response.status_code == 200:
+    user_info = me_response.json()
+
+    st.info(
+        f"📧 Forward your job emails to: {user_info['inbound_email']}"
+    )
+
+    if user_info["gmail_verified"]:
+        st.success("✅ Gmail forwarding is connected!")
+    elif user_info.get("gmail_verification_link"):
+        st.warning("⏳ Gmail forwarding needs verification.")
+
+        if st.button("Verify Gmail Forwarding"):
+            st.markdown(
+                f"[Click here to verify Gmail forwarding]({user_info['gmail_verification_link']})"
+            )
+    else:
+        st.warning("📬 Gmail forwarding is not set up yet.")
+
+else:
+    st.error("Could not load your TrackDesk email.")
+
 platforms = [
     "LinkedIn",
     "Indeed",

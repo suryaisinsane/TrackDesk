@@ -32,6 +32,17 @@ class User(Base):
         unique=True,
         nullable=False,
     )
+    gmail_verified: Mapped[bool] = mapped_column(
+    default=False,
+    nullable=False,
+    )
+
+    gmail_verification_link: Mapped[str | None] = mapped_column(
+    Text,
+    nullable=True,
+    )
+
+
     daily_email_count: Mapped[int] = mapped_column(
     Integer,
     default=0,

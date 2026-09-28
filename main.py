@@ -1,4 +1,6 @@
 import secrets
+import re 
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException , Depends
 from email_parser import clean_email_body
 from llm_parser import extract_job_details
@@ -17,6 +19,8 @@ from db import (
     process_email_application,
     check_and_increment_daily_email_limit,
     get_raw_email_by_message_id,
+    get_user_by_id,
+    save_gmail_verification_link,
 
 )
 from schemas import (
@@ -55,6 +59,27 @@ app = FastAPI()
 def root():
     return {"message": "Job Tracker API is running"}
 
+@app.get("/me")
+def get_me(
+    current_user_id: int = Depends(get_current_user_id),
+):
+    user = get_user_by_id(current_user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    return {
+    "id": user.id,
+    "name": user.name,
+    "email": user.email,
+    "inbound_email": user.inbound_email,
+    "gmail_verified": user.gmail_verified,
+    "gmail_verification_link": user.gmail_verification_link,
+    }
+        
 
 @app.post("/applications", response_model=ApplicationResponse)
 def create_application_endpoint(
@@ -163,7 +188,7 @@ def register_user(user: UserCreate):
         )
 
     password_hash = hash_password(user.password)
-    inbound_email = f"u_{secrets.token_urlsafe(8)}@inbound.trackdesk.local"
+    inbound_email = f"u_{secrets.token_urlsafe(8)}@xoikwen.resend.app"
 
     new_user = create_user(
         name=user.name,
@@ -176,6 +201,7 @@ def register_user(user: UserCreate):
         "id": new_user.id,
         "name": new_user.name,
         "email": new_user.email,
+        "inbound_email": new_user.inbound_email,
     }
 
 
@@ -204,6 +230,7 @@ def login_user(user: UserLogin):
         "access_token": access_token,
         "token_type": "bearer",
     }
+
 @app.get("/me")
 def get_me(
     current_user_id: int = Depends(get_current_user_id),
@@ -211,6 +238,7 @@ def get_me(
     return {
         "user_id": current_user_id
     }
+
 
 @app.post("/webhooks/email")
 def receive_email(event: dict):
@@ -224,42 +252,56 @@ def receive_email(event: dict):
             status_code=400,
             detail="Unknown TrackDesk inbound email address",
         )
-    
+
     received_email = resend.Emails.Receiving.get(email_id)
 
     from_email = received_email["from"]
     subject = received_email.get("subject")
-    body = received_email.get("text") or received_email.get("html") or ""
+    text_body = received_email.get("text") or ""
+    body = text_body
     message_id = received_email.get("message_id")
+
+    if message_id:
+        existing_email = get_raw_email_by_message_id(message_id)
+
+        if existing_email is not None:
+            return {
+                "message": "Email already processed",
+                "email_id": existing_email.id,
+            }
+
+    if is_gmail_forwarding_verification(from_email, subject, body):
+        verification_link = extract_gmail_verification_link(body)
+
+        if verification_link:
+            save_gmail_verification_link(
+                user_id=user.id,
+                verification_link=verification_link,
+            )
+
+        return {
+            "message": "Gmail forwarding verification email detected",
+            "verification_link_found": verification_link is not None,
+        }
 
     allowed = check_and_increment_daily_email_limit(user.id)
 
-
-    if message_id:
-    existing_email = get_raw_email_by_message_id(message_id)
-
-    if existing_email is not None:
-        return {
-            "message": "Email already processed",
-            "email_id": existing_email.id,
-        }
-    
-
     if not allowed:
-     new_email = create_raw_email(
-        user_id=user.id,
-        from_email=from_email,
-        to_email=to_email,
-        subject=subject,
-        body=body,
-        message_id=message_id,
-        status="limit_reached",
-    )
+        new_email = create_raw_email(
+            user_id=user.id,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            message_id=message_id,
+            status="limit_reached",
+        )
 
-    return {
-        "message": "Daily email processing limit reached",
-        "email_id": new_email.id,
-    }
+        return {
+            "message": "Daily email processing limit reached",
+            "email_id": new_email.id,
+        }
+
     new_email = create_raw_email(
         user_id=user.id,
         from_email=from_email,
@@ -272,6 +314,13 @@ def receive_email(event: dict):
     cleaned_text = clean_email_body(body)
 
     extraction = extract_job_details(cleaned_text)
+
+    if not extraction.company or not extraction.role or not extraction.status:
+        return {
+            "message": "Email stored but required job details were missing",
+            "email_id": new_email.id,
+            "confidence": extraction.confidence,
+        }
 
     if extraction.confidence < 0.7:
         return {
@@ -292,3 +341,33 @@ def receive_email(event: dict):
         "email_id": new_email.id,
         "application": application_result,
     }
+
+def is_gmail_forwarding_verification(
+    from_email: str,
+    subject: str | None,
+    body: str,
+) -> bool:
+    return (
+        from_email.lower() == "forwarding-noreply@google.com"
+        and subject is not None
+        and "gmail forwarding confirmation" in subject.lower()
+        and "has requested to automatically forward mail" in body.lower()
+    )
+
+def extract_gmail_verification_link(body: str) -> str | None:
+    urls = re.findall(r'https?://\S+', body)
+
+    print("EXTRACTOR URL COUNT:", len(urls))
+
+    for i, url in enumerate(urls):
+        print(
+            f"EXTRACTOR URL {i}:",
+            url[:50],
+            "...",
+            url[-20:]
+        )
+
+    if not urls:
+        return None
+
+    return urls[0]

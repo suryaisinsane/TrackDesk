@@ -240,6 +240,21 @@ def get_user_by_inbound_email(inbound_email):
 
         return user
 
+def get_user_by_id(user_id):
+    with SessionLocal() as session:
+        return session.get(User, user_id)
+
+def save_gmail_verification_link(user_id: int, verification_link: str):
+    with SessionLocal() as session:
+        user = session.get(User, user_id)
+
+        if user is None:
+            return False
+
+        user.gmail_verification_link = verification_link
+        session.commit()
+        return True
+
 def create_raw_email(
     user_id: int,
     from_email: str,
