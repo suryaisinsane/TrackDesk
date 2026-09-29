@@ -7,6 +7,8 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
 
 
+TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7)))  # 7 days
+
 password_hash = PasswordHash.recommended()
 oauth2_scheme = HTTPBearer()
 def hash_password(password: str) -> str:
@@ -25,7 +27,7 @@ def create_access_token(user_id: int) -> str:
             "JWT_SECRET_KEY environment variable is not set."
         )
 
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
 
     payload = {
         "sub": str(user_id),

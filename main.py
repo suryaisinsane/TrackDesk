@@ -1,6 +1,7 @@
 import secrets
 import re 
 from bs4 import BeautifulSoup
+from webhook_security import verify_resend_webhook
 from fastapi import FastAPI, HTTPException , Depends
 from email_parser import clean_email_body
 from llm_parser import extract_job_details
@@ -101,9 +102,16 @@ def create_application_endpoint(
 
 
 @app.get("/applications", response_model=list[ApplicationResponse])
-def list_applications(current_user_id: int = Depends(get_current_user_id,)
+def list_applications(
+    status: str | None = None,
+    search: str | None = None,
+    current_user_id: int = Depends(get_current_user_id),
 ):
-    return get_applications(current_user_id)
+    return get_applications(
+        current_user_id,
+        status=status or None,
+        search=search or None,
+    )
 
 @app.get("/applications/status-counts")
 def get_status_counts(
@@ -231,17 +239,19 @@ def login_user(user: UserLogin):
         "token_type": "bearer",
     }
 
-@app.get("/me")
-def get_me(
-    current_user_id: int = Depends(get_current_user_id),
-):
-    return {
-        "user_id": current_user_id
-    }
+VALID_STATUSES = {"Applied", "Interview", "Offer", "Rejected"}
 
+
+def normalize_status(raw_status: str | None) -> str | None:
+    """Map whatever casing/spacing the LLM returns to a valid Status,
+    or None if it isn't one of the four known statuses."""
+    if not raw_status:
+        return None
+    cleaned = raw_status.strip().capitalize()
+    return cleaned if cleaned in VALID_STATUSES else None
 
 @app.post("/webhooks/email")
-def receive_email(event: dict):
+def receive_email(event: dict = Depends(verify_resend_webhook)):
     email_id = event["data"]["email_id"]
     to_email = event["data"]["to"][0]
 
@@ -329,13 +339,22 @@ def receive_email(event: dict):
             "confidence": extraction.confidence,
         }
 
+    normalized_status = normalize_status(extraction.status)
+
+    if normalized_status is None:
+        return {
+            "message": "Email stored but status was not recognized",
+            "email_id": new_email.id,
+            "raw_status": extraction.status,
+        }
+
     application_result = process_email_application(
         user_id=user.id,
         company=extraction.company,
         role=extraction.role,
-        status=extraction.status,
+        status=normalized_status,
     )
-
+        
     return {
         "message": "Email processed successfully",
         "email_id": new_email.id,

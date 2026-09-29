@@ -7,24 +7,31 @@ from models import Application,User,RawEmail
 from datetime import date
 
 
-def get_connection():
-    return psycopg.connect(
-        host="localhost",
-        port=5432,
-        dbname="job_tracker",
-        user="postgres",
-        password="S@ndy229/",
-        row_factory=dict_row
-    )
-# NEW: SQLAlchemy setup
-DATABASE_URL = URL.create(
-    drivername="postgresql+psycopg",
-    username="postgres",
-    password="S@ndy229/",
-    host="localhost",
-    port=5432,
-    database="job_tracker",
-)
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _database_url() -> str:
+    url = os.getenv("DATABASE_URL")
+    if url:
+        # Hosts like Render/Railway give postgres:// or postgresql://
+        url = url.replace("postgres://", "postgresql://", 1)
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
+    return URL.create(
+        drivername="postgresql+psycopg",
+        username=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "job_tracker"),
+    ).render_as_string(hide_password=False)
+
+
+DATABASE_URL = _database_url()
 
 engine = create_engine(DATABASE_URL)
 
