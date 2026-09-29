@@ -58,7 +58,10 @@ st.session_state.setdefault("editing_id", None)
 # rerun once before deciding the user is really logged out.
 
 if st.session_state["token"] is None and not st.session_state["logged_out"]:
-    saved_token = cookies.get(COOKIE_NAME)
+    try:
+        saved_token = cookies.get(COOKIE_NAME)
+    except Exception:
+        saved_token = None
 
     if saved_token:
         st.session_state["token"] = saved_token
