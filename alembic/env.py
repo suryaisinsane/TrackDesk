@@ -26,22 +26,25 @@ if config.config_file_name is not None:
 #
 # The password is read from the environment so it does not
 # need to be written directly into this file.
-password = os.getenv("DB_PASSWORD")
+database_url = os.getenv("DATABASE_URL")
 
-if not password:
+if not database_url:
     raise RuntimeError(
-        "DB_PASSWORD environment variable is not set."
+        "DATABASE_URL environment variable is not set."
     )
 
-database_url = URL.create(
-    drivername="postgresql+psycopg",
-    username="postgres",
-    password=password,
-    host="localhost",
-    port=5432,
-    database="job_tracker",
+database_url = database_url.replace(
+    "postgres://",
+    "postgresql://",
+    1,
 )
 
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace(
+        "postgresql://",
+        "postgresql+psycopg://",
+        1,
+    )
 
 # Tell Alembic about our SQLAlchemy models.
 target_metadata = Base.metadata
