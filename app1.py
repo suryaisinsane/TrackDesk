@@ -40,6 +40,30 @@ STATUS_ICONS = {
 today = datetime.date.today()
 cookies = CookieController()
 
+
+def safe_cookie_get(name):
+    """The cookie component isn't ready on the very first render,
+    so .get()/.set()/.remove() can raise before it's initialized.
+    Treat that the same as "no cookie yet"."""
+    try:
+        return cookies.get(name)
+    except Exception:
+        return None
+
+
+def safe_cookie_set(name, value, max_age):
+    try:
+        cookies.set(name, value, max_age=max_age)
+    except Exception:
+        pass
+
+
+def safe_cookie_remove(name):
+    try:
+        cookies.remove(name)
+    except Exception:
+        pass
+
 # ==================================================
 # SESSION STATE
 # ==================================================
@@ -58,10 +82,7 @@ st.session_state.setdefault("editing_id", None)
 # rerun once before deciding the user is really logged out.
 
 if st.session_state["token"] is None and not st.session_state["logged_out"]:
-    try:
-        saved_token = cookies.get(COOKIE_NAME)
-    except Exception:
-        saved_token = None
+    saved_token = safe_cookie_get(COOKIE_NAME)
 
     if saved_token:
         st.session_state["token"] = saved_token
@@ -75,7 +96,7 @@ def log_out():
     st.session_state["token"] = None
     st.session_state["logged_out"] = True
     st.session_state["editing_id"] = None
-    cookies.remove(COOKIE_NAME)
+    safe_cookie_remove(COOKIE_NAME)
     time.sleep(0.4)  # let the browser process the cookie removal
     st.rerun()
 
@@ -115,9 +136,7 @@ if not st.session_state["token"]:
                         token = response.json()["access_token"]
                         st.session_state["token"] = token
                         st.session_state["logged_out"] = False
-                        cookies.set(
-                            COOKIE_NAME, token, max_age=COOKIE_MAX_AGE
-                        )
+                        safe_cookie_set(COOKIE_NAME, token, COOKIE_MAX_AGE)
                         time.sleep(0.6)  # let the browser save the cookie
                         st.rerun()
                     else:
@@ -186,7 +205,7 @@ def api(method, path, **kwargs):
 
     if response.status_code == 401:
         st.session_state["token"] = None
-        cookies.remove(COOKIE_NAME)
+        safe_cookie_remove(COOKIE_NAME)
         time.sleep(0.4)
         st.rerun()
 
